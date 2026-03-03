@@ -13,6 +13,7 @@ using AssuranceApi.Utils.Logging;
 using AssuranceApi.Utils.Mongo;
 using AssuranceApi.Validators;
 using FluentValidation;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -214,6 +215,41 @@ static void ConfigureApiDocumentation(WebApplicationBuilder builder, Logger logg
 [ExcludeFromCodeCoverage]
 static void ConfigureAuthentication(WebApplicationBuilder _builder, Logger logger)
 {
+    var authBypass = _builder.Configuration["AUTH_BYPASS"];
+    if (string.Equals(authBypass, "true", StringComparison.OrdinalIgnoreCase))
+    {
+        logger.Warning("AUTH_BYPASS is enabled. API authentication is bypassed for local development.");
+
+        _builder
+            .Services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = DevBypassAuthenticationHandler.SchemeName;
+                options.DefaultChallengeScheme = DevBypassAuthenticationHandler.SchemeName;
+            })
+            .AddScheme<AuthenticationSchemeOptions, DevBypassAuthenticationHandler>(
+                DevBypassAuthenticationHandler.SchemeName,
+                _ => { }
+            );
+
+        _builder.Services.AddAuthorization(options =>
+        {
+            options.AddPolicy("RequireAuthenticated", policy => policy.RequireAuthenticatedUser());
+            options.AddPolicy(
+                "RequireAdmin",
+                policy =>
+                    policy
+                        .RequireAuthenticatedUser()
+                        .RequireClaim(
+                            "http://schemas.microsoft.com/ws/2008/06/identity/claims/role",
+                            "Admin",
+                            "admin"
+                        )
+            );
+        });
+
+        return;
+    }
+
     logger.Information("Configuring Azure AD authentication");
 
     string? tenantId = GetTenantIdFromConfiguration(_builder);
